@@ -7,7 +7,7 @@ ENV LC_ALL=en_US.UTF-8
 ENV ANDROID_SDK_ROOT="/opt/android-sdk"
 ENV PATH="${PATH}:${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin:${ANDROID_SDK_ROOT}/platform-tools"
 
-# Install necessary packages for Android SDK and Java
+# Install necessary packages for Android SDK, Java, and Repo tool
 RUN pacman -Syu --noconfirm && \
     pacman-key --init && \
     pacman-key --populate archlinux && \
@@ -17,8 +17,15 @@ RUN pacman -Syu --noconfirm && \
     curl \
     git \
     wget \
+    python \
     && export JAVA_HOME=$(readlink -f /usr/bin/java | sed "s:/bin/java::") \
     && export PATH="$PATH:$JAVA_HOME/bin" \
+    \
+    # Install the Repo tool
+    && mkdir -p /opt/bin \
+    && curl -sS https://storage.googleapis.com/git-repo-downloads/repo > /opt/bin/repo \
+    && chmod a+x /opt/bin/repo \
+    && export PATH="$PATH:/opt/bin" \
     \
     # Install Android SDK Command Line Tools (latest stable version)
     && curl -o /tmp/commandlinetools.zip https://dl.google.com/android/repository/commandlinetools-linux-10406996_latest.zip \
