@@ -1,72 +1,80 @@
-{
-  "name": "TWRP A26x Build Environment (Pre-built Image for TWRP 12.1)",
-  // Consider pinning to a specific version of the universal image for stability, e.g., universal:2
-  "image": "mcr.microsoft.com/devcontainers/universal:latest",
+#!/bin/bash
 
-  "customizations": {
-    "vscode": {
-      "extensions": [
-        "ms-vscode.cpptools",
-        "redhat.vscode-yaml",
-        "ms-azuretools.vscode-docker"
-      ]
-    }
-  },
-  "remoteUser": "root",
-  "containerUser": "root", // Running as root for setup simplicity
+# build_twrp.sh
+# This script automates the TWRP compilation process inside the Docker container.
 
-  "containerEnv": {
-    "ANDROID_SDK_ROOT": "/opt/android-sdk",
-    // Prepend Android SDK tools to the PATH
-    "PATH": "/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools:${containerEnv:PATH}"
-  },
+echo "Starting TWRP build process..."
 
-  "features": {
-    // Install Python and C/C++ tools, which are common dev dependencies.
-    "ghcr.io/devcontainers/features/python:1": {
-      "version": "3.10"
-    },
-    "ghcr.io/devcontainers/features/cpp:1": {} // Installs common C/C++ build tools
-  },
+# Navigate to the TWRP build directory
+cd /home/twrpbuilder/twrp-build
 
-  "postCreateCommand": [
-    "echo 'Starting TWRP manifest and A26x device source setup for TWRP 12.1...'",
+# Step 1: Sync the TWRP sources
+echo "Syncing TWRP sources..."
+repo sync -j$(nproc --all)
 
-    // Install Repo tool
-    "mkdir -p /usr/local/bin && curl -sS https://storage.googleapis.com/git-repo-downloads/repo > /usr/local/bin/repo && chmod a+x /usr/local/bin/repo",
+if [ $? -ne 0 ]; then
+    echo "Error: repo sync failed. Exiting."
+    exit 1
+fi
+echo "TWRP sources synced successfully."
 
-    // Install Android SDK Command Line Tools, accept licenses, and install required packages
-    "echo 'Installing Android SDK Command Line Tools and platform tools/SDK for Android 12L...'",
-    "mkdir -p /opt/android-sdk && curl -o /tmp/commandlinetools.zip https://dl.google.com/android/repository/commandlinetools-linux-10406996_latest.zip && unzip /tmp/commandlinetools.zip -d /opt/android-sdk/cmdline-tools && mv /opt/android-sdk/cmdline-tools/cmdline-tools /opt/android-sdk/cmdline-tools/latest && rm /tmp/commandlinetools.zip",
-    // SDKmanager will use ANDROID_SDK_ROOT and PATH from containerEnv
-    "yes | sdkmanager --licenses",
-    // For TWRP 12.1 (Android 12L - API 32), using appropriate platform and build-tools
-    "sdkmanager \"platform-tools\" \"build-tools;33.0.1\" \"platforms;android-32\"",
+# Step 2: Clone the device tree repository and copy the device tree
+echo "Cloning device tree repository..."
+# Temporarily clone to a temp directory to get the device tree
+git clone https://gitgud.io/fw-dumps/samsung/a26x.git /tmp/a26x_device_tree
 
-    // 1. Initialize and sync the minimal TWRP manifest for TWRP 12.1
-    "echo 'Initializing and syncing TWRP 12.1 manifest...'",
-    "repo init -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_omni -b twrp-12.1 --depth=1",
-    "repo sync -j$(nproc)",
+if [ $? -ne 0 ]; then
+    echo "Error: Failed to clone device tree repository. Exiting."
+    exit 1
+fi
+echo "Device tree repository cloned."
 
-    // 2. Clone the entire A26x firmware dump from GitGud.io
-    "echo 'Cloning A26x firmware dump from GitGud.io (containing device tree, kernel, platform)...'",
-    "git clone https://gitgud.io/fw-dumps/samsung/a26x.git /tmp/a26x_fw_dump_temp",
+echo "Copying device tree to TWRP sources..."
+# Ensure the target directory exists
+mkdir -p device/samsung/
+# Copy the 'a26x' folder from the cloned repo to the TWRP sources
+cp -r /tmp/a26x_device_tree/twrp-device-tree/samsung/a26x device/samsung/
 
-    // 3. Copy components from the cloned dump to their expected locations in the TWRP source
-    "echo 'Copying device-specific files...'",
-    "mkdir -p device/samsung/a26x",
-    "cp -r /tmp/a26x_fw_dump_temp/twrp-device-tree/samsung/a26x/* device/samsung/a26x/",
+if [ $? -ne 0 ]; then
+    echo "Error: Failed to copy device tree. Exiting."
+    exit 1
+fi
+echo "Device tree copied successfully."
 
-    "mkdir -p kernel/samsung/a26x",
-    // Corrected: Copy kernel files into the specific device kernel path
-    "cp -r /tmp/a26x_fw_dump_temp/kernel/* kernel/samsung/a26x/",
+# Clean up the temporary device tree clone
+rm -rf /tmp/a26x_device_tree
 
-    "mkdir -p vendor/samsung/a26x",
-    // Corrected: Copy vendor files into the specific device vendor path
-    "cp -r /tmp/a26x_fw_dump_temp/vendor/* vendor/samsung/a26x/",
+# Step 3: Initialize the build environment
+echo "Initializing build environment..."
+. build/envsetup.sh
 
-    "rm -rf /tmp/a26x_fw_dump_temp",
+# Step 4: Select the device for compilation
+DEVICE_CODENAME="a26x"
+echo "Selecting device: omni_${DEVICE_CODENAME}-eng"
+lunch omni_${DEVICE_CODENAME}-eng
 
-    "echo 'TWRP 12.1 source setup complete! Ready for compilation.'"
-  ]
-}
+if [ $? -ne 0 ]; then
+    echo "Error: lunch command failed. Exiting."
+    exit 1
+fi
+echo "Device selected successfully."
+
+# Step 5: Build the recovery image
+echo "Starting TWRP recovery image compilation..."
+# Since A/B Device is false, we use mka recoveryimage
+mka recoveryimage
+
+if [ $? -ne 0 ]; then
+    echo "Error: TWRP compilation failed. Check logs above for details."
+    exit 1
+fi
+echo "TWRP recovery image compiled successfully!"
+
+# Step 6: Inform user about the output location
+OUTPUT_DIR="out/target/product/${DEVICE_CODENAME}"
+echo "Your recovery.img should be located in: ${OUTPUT_DIR}/recovery.img"
+echo "You can copy it from the container to your host using 'docker cp'."
+
+# Keep the container running for inspection if needed (optional, for debugging)
+# tail -f /dev/null
+
