@@ -1,0 +1,49 @@
+{
+  "name": "TWRP A26x Build Environment",
+  "build": {
+    "dockerfile": "../Dockerfile", // Points to your Dockerfile in the parent directory
+    "context": ".."                // Use the entire repo as the build context for Docker
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.cpptools",
+        "redhat.vscode-yaml",
+        "ms-azuretools.vscode-docker"
+      ]
+    }
+  },
+  "remoteUser": "root",
+  "containerUser": "root",
+
+  // This is the CRUCIAL part: These commands run *automatically*
+  // after the Codespace container is created, executed within the cloud.
+  // All large downloads here use GitHub's bandwidth, not yours.
+  "postCreateCommand": [
+    "echo 'Starting TWRP manifest and A26x device source setup...'",
+
+    // 1. Initialize and sync the minimal TWRP manifest (uses GitHub's bandwidth)
+    "repo init -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_omni -b twrp-13.0 --depth=1",
+    "repo sync -j$(nproc)",
+
+    // 2. Clone the entire A26x firmware dump from GitGud.io
+    //    This single clone is assumed to contain device tree, kernel, and platform
+    "echo 'Cloning A26x firmware dump from GitGud.io (containing device tree, kernel, platform)...'",
+    "git clone https://gitgud.io/fw-dumps/samsung/a26x.git /tmp/a26x_fw_dump_temp",
+
+    // 3. Copy components from the cloned dump to their expected locations in the TWRP source
+    "echo 'Copying device-specific files...'",
+    "mkdir -p device/samsung/a26x",
+    "cp -r /tmp/a26x_fw_dump_temp/twrp-device-tree/samsung/a26x/* device/samsung/a26x/",
+
+    "mkdir -p kernel/samsung/a26x",
+    "cp -r /tmp/a26x_fw_dump_temp/kernel/* kernel/", // Assuming kernel is directly under /kernel in dump
+    "rm -rf kernel/samsung/a26x", // Remove auto-created empty folder if kernel is copied to root of kernel/
+
+    "mkdir -p vendor/samsung/a26x",
+    "cp -r /tmp/a26x_fw_dump_temp/vendor/* vendor/", // Assuming vendor is directly under /vendor in dump
+    "rm -rf vendor/samsung/a26x", // Remove auto-created empty folder if vendor is copied to root of vendor/
+
+    "echo 'TWRP source setup complete! Ready for compilation.'"
+  ]
+}
