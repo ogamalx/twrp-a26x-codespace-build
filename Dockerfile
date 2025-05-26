@@ -1,44 +1,52 @@
-{
-  "name": "TWRP A26x Build Environment",
-  "build": {
-    "dockerfile": "../Dockerfile",
-    "context": ".."
-  },
-  "customizations": {
-    "vscode": {
-      "extensions": [
-        "ms-vscode.cpptools",
-        "redhat.vscode-yaml",
-        "ms-azuretools.vscode-docker"
-      ]
-    }
-  },
-  "remoteUser": "root",
-  "containerUser": "root",
+# Use the official Arch Linux base image
+FROM archlinux:latest
 
-  "postCreateCommand": [
-    "echo 'Starting TWRP manifest and A26x device source setup...'",
+# Set environment variables for locale and Android SDK paths
+ENV LANG=en_US.UTF-8
+ENV LC_ALL=en_US.UTF-8
+ENV ANDROID_SDK_ROOT="/opt/android-sdk"
+ENV PATH="${PATH}:${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin:${ANDROID_SDK_ROOT}/platform-tools"
 
-    "repo init -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_omni -b twrp-13.0 --depth=1",
-    "repo sync -j$(nproc)",
+# Install necessary packages for Android SDK, Java, and Repo tool
+RUN pacman -Syu --noconfirm && \
+    pacman-key --init && \
+    pacman-key --populate archlinux && \
+    pacman -S --noconfirm \
+    jdk17-openjdk \
+    unzip \
+    curl \
+    git \
+    wget \
+    python \
+    && export JAVA_HOME=$(readlink -f /usr/bin/java | sed "s:/bin/java::") \
+    && export PATH="$PATH:$JAVA_HOME/bin" \
+    \
+    # Install the Repo tool
+    && mkdir -p /opt/bin \
+    && curl -sS https://storage.googleapis.com/git-repo-downloads/repo > /opt/bin/repo \
+    && chmod a+x /opt/bin/repo \
+    && export PATH="$PATH:/opt/bin" \
+    \
+    # Install Android SDK Command Line Tools (latest stable version)
+    && curl -o /tmp/commandlinetools.zip https://dl.google.com/android/repository/commandlinetools-linux-10406996_latest.zip \
+    && mkdir -p ${ANDROID_SDK_ROOT}/cmdline-tools \
+    && unzip /tmp/commandlinetools.zip -d ${ANDROID_SDK_ROOT}/cmdline-tools \
+    && mv ${ANDROID_SDK_ROOT}/cmdline-tools/cmdline-tools ${ANDROID_SDK_ROOT}/cmdline-tools/latest \
+    && rm /tmp/commandlinetools.zip \
+    \
+    # Accept Android SDK licenses automatically
+    && yes | ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager --licenses \
+    \
+    # Install specific SDK components required for your project
+    && ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager \
+       "platform-tools" \
+       "build-tools;34.0.0" \
+       "platforms;android-34" \
+    \
+    # Clean up to reduce image size
+    && pacman -Sc --noconfirm \
+    && rm -rf /var/cache/pacman/pkg/*
 
-    "echo 'Cloning A26x firmware dump from GitGud.io (containing device tree, kernel, platform)...'",
-    "git clone https://gitgud.io/fw-dumps/samsung/a26x.git /tmp/a26x_fw_dump_temp",
+WORKDIR /app
 
-    "echo 'Copying device-specific files...'",
-    "mkdir -p device/samsung/a26x",
-    "cp -r /tmp/a26x_fw_dump_temp/twrp-device-tree/samsung/a26x/* device/samsung/a26x/",
-
-    "mkdir -p kernel/samsung/a26x",
-    "cp -r /tmp/a26x_fw_dump_temp/kernel/* kernel/",
-    "rm -rf kernel/samsung/a26x",
-
-    "mkdir -p vendor/samsung/a26x",
-    "cp -r /tmp/a26x_fw_dump_temp/vendor/* vendor/",
-    "rm -rf vendor/samsung/a26x",
-
-    "rm -rf /tmp/a26x_fw_dump_temp",
-
-    "echo 'TWRP source setup complete! Ready for compilation.'"
-  ]
-}
+CMD ["bash"]
