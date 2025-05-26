@@ -1,0 +1,75 @@
+{
+  "name": "TWRP A26x Build Environment (Pre-built Image)",
+  "image": "mcr.microsoft.com/devcontainers/universal:latest", // Using a pre-built universal image for simplicity
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.cpptools",
+        "redhat.vscode-yaml",
+        "ms-azuretools.vscode-docker"
+      ]
+    }
+  },
+  "remoteUser": "root",
+  "containerUser": "root",
+
+  "features": {
+    // Install Python and C/C++ tools, which are common dev dependencies.
+    // These features often handle locale and basic setup better than manual scripts.
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "3.10"
+    },
+    "ghcr.io/devcontainers/features/cpp:1": {} // Installs common C/C++ build tools
+  },
+
+  "postCreateCommand": [
+    "echo 'Starting TWRP manifest and A26x device source setup...'",
+
+    // Install Repo tool (needed for repo init/sync)
+    // The 'universal:latest' image might already have curl, python.
+    // This is a robust way to ensure repo is present.
+    "mkdir -p /usr/local/bin", // Standard location for user-installed binaries
+    "curl -sS https://storage.googleapis.com/git-repo-downloads/repo > /usr/local/bin/repo",
+    "chmod a+x /usr/local/bin/repo",
+    // PATH should already include /usr/local/bin in universal image
+
+    // Install Android SDK Command Line Tools and accept licenses
+    "echo 'Installing Android SDK Command Line Tools and accepting licenses...'",
+    "mkdir -p /opt/android-sdk/cmdline-tools",
+    "curl -o /tmp/commandlinetools.zip https://dl.google.com/android/repository/commandlinetools-linux-10406996_latest.zip",
+    "unzip /tmp/commandlinetools.zip -d /opt/android-sdk/cmdline-tools",
+    "mv /opt/android-sdk/cmdline-tools/cmdline-tools /opt/android-sdk/cmdline-tools/latest",
+    "rm /tmp/commandlinetools.zip",
+    "export ANDROID_SDK_ROOT=\"/opt/android-sdk\"", // Set env for current shell
+    "export PATH=\"$PATH:${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin:${ANDROID_SDK_ROOT}/platform-tools\"", // Add to PATH for current shell
+    "yes | ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager --licenses",
+    "${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager \"platform-tools\" \"build-tools;34.0.0\" \"platforms;android-34\"",
+
+    // 1. Initialize and sync the minimal TWRP manifest (uses GitHub's bandwidth)
+    "echo 'Initializing and syncing TWRP manifest...'",
+    "repo init -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_omni -b twrp-13.0 --depth=1", // Use twrp-13.0 as discussed
+    "repo sync -j$(nproc)",
+
+    // 2. Clone the entire A26x firmware dump from GitGud.io
+    "echo 'Cloning A26x firmware dump from GitGud.io (containing device tree, kernel, platform)...'",
+    "git clone https://gitgud.io/fw-dumps/samsung/a26x.git /tmp/a26x_fw_dump_temp",
+
+    // 3. Copy components from the cloned dump to their expected locations in the TWRP source
+    "echo 'Copying device-specific files...'",
+    "mkdir -p device/samsung/a26x",
+    "cp -r /tmp/a26x_fw_dump_temp/twrp-device-tree/samsung/a26x/* device/samsung/a26x/",
+
+    "mkdir -p kernel/samsung/a26x",
+    "cp -r /tmp/a26x_fw_dump_temp/kernel/* kernel/",
+    "rm -rf kernel/samsung/a26x",
+
+    "mkdir -p vendor/samsung/a26x",
+    "cp -r /tmp/a26x_fw_dump_temp/vendor/* vendor/",
+    "rm -rf vendor/samsung/a26x",
+
+    "rm -rf /tmp/a26x_fw_dump_temp",
+
+    "echo 'TWRP source setup complete! Ready for compilation.'"
+  ]
+}
